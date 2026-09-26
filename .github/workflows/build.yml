@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Bước này vô cùng quan trọng đối với các dự án GUI (như eframe/egui) trên Linux
+    # Bước này vô cùng quan trọng đối với các dự án GUI (nhu eframe/egui) trên Linux
     - name: Install dependencies (GUI libs)
       run: |
         sudo apt-get update
@@ -30,3 +30,10 @@ jobs:
 
     - name: Build Release
       run: cargo build --release
+
+    # BƯỚC THÊM MỚI: Xuất file chạy (binary) ra giao diện GitHub Actions
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: peamark-html-tagger-linux
+        path: target/release/peamark_html_tagger
