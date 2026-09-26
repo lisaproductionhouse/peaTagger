@@ -1,0 +1,40 @@
+[package]
+name = "peamark_html_tagger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Dùng egui qua re-export của eframe (eframe::egui) thay vì khai báo `egui`
+# như một dependency riêng — tránh trường hợp 2 crate lệch version nhau khi
+# cargo resolve (dễ gặp vì egui/eframe ra bản mới rất thường xuyên).
+eframe = "0.36"
+walkdir = "2"
+
+# Tagger engine (Phần 3): scraper bọc html5ever + selectors cho parse/query
+# bằng CSS selector. html5ever/ego-tree được khai báo TRỰC TIẾP (không chỉ
+# qua scraper) vì code tự dựng html5ever::Attribute/QualName để bơm thuộc
+# tính — version ở đây PHẢI khớp với version scraper 0.27 dùng nội bộ
+# (html5ever ^0.39, ego-tree ^0.11, xác nhận qua docs.rs) để cargo resolve
+# về CÙNG MỘT bản, tránh lỗi "expected html5ever::Attribute, found
+# html5ever::Attribute" do 2 version khác nhau không unify type cho nhau.
+scraper = { version = "0.27", features = ["deterministic"] }
+html5ever = "0.39"
+ego-tree = "0.11"
+
+# Hệ thống dịch (Phần 4):
+# - serde/serde_json: đọc/ghi local_dict.json + parse JSON response từ API dịch.
+# - ureq: HTTP client BLOCKING (không cần tokio/async runtime) — gọi trên
+#   thread riêng (xem translate/mod.rs) nên không block UI dù bản thân client
+#   là blocking. rustls + gzip đã bật mặc định nên HTTPS chạy được ngay,
+#   không cần khai báo thêm feature.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+
+# Diff dòng+từ (Phần 5): dùng crate similar (Myers/Patience diff, nền tảng
+# của insta/ruff...) thay vì tự viết thuật toán diff — rủi ro cao hơn nhiều
+# nếu tự làm mà không compile-check được. Cần bật 2 feature không mặc định:
+# "text" cho TextDiff::from_lines, "inline" cho iter_all_inline_changes (diff
+# cấp từ bên trong các dòng bị thay thế).
+similar = { version = "3", features = ["text", "inline"] }
+regex = "1"

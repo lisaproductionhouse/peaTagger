@@ -1,0 +1,23 @@
+peamark_html_tagger/
+├── Cargo.toml
+└── src/
+    ├── main.rs
+    ├── app.rs
+    ├── state.rs
+    ├── diff.rs
+    ├── export.rs
+    ├── tagger/
+    │   ├── mod.rs
+    │   ├── detect.rs
+    │   └── matching.rs
+    ├── translate/
+    │   ├── mod.rs
+    │   ├── dict.rs
+    │   ├── backend.rs
+    │   └── apply.rs
+    └── ui/
+        ├── mod.rs
+        ├── drop_zone.rs
+        ├── sidebar.rs
+        ├── preview.rs
+        └── config_panel.rs

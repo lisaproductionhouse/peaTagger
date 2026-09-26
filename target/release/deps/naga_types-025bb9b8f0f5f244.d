@@ -1,0 +1,11 @@
+E:\WORK\RUST\auto_html_tagger\target\release\deps\naga_types-025bb9b8f0f5f244.d: C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\lib.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\glsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\hlsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\msl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\spv.rs
+
+E:\WORK\RUST\auto_html_tagger\target\release\deps\libnaga_types-025bb9b8f0f5f244.rlib: C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\lib.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\glsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\hlsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\msl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\spv.rs
+
+E:\WORK\RUST\auto_html_tagger\target\release\deps\libnaga_types-025bb9b8f0f5f244.rmeta: C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\lib.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\glsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\hlsl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\msl.rs C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\spv.rs
+
+C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\lib.rs:
+C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\glsl.rs:
+C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\hlsl.rs:
+C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\msl.rs:
+C:\Users\705G5\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\naga-types-30.0.1\src\spv.rs:
