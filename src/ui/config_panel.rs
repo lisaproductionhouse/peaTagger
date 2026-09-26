@@ -52,56 +52,62 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
     // Hàng 2: cụm "Ngôn ngữ xuất | Bắt đầu" đẩy sát góc DƯỚI-PHẢI — đúng
     // chuẩn UI/UX: hành động chính (CTA) cùng điều kiện tiên quyết trực tiếp
     // của nó (chọn ngôn ngữ output) nằm ở góc phải, tách khỏi khối Tùy chọn.
-    // Layout right_to_left: widget ADD ĐẦU TIÊN nằm NGOÀI CÙNG bên phải, các
-    // widget add SAU tự lùi dần sang trái — nên nút thêm TRƯỚC, cụm ngôn ngữ
-    // thêm SAU để hiện đúng thứ tự đọc "Ngôn ngữ xuất | Bắt đầu".
+    // QUAN TRỌNG: gộp cụm ngôn ngữ + nút thành 1 khối `ui.horizontal` DUY
+    // NHẤT rồi mới đẩy CẢ KHỐI sang phải — with_layout(right_to_left) ở đây
+    // chỉ nhận ĐÚNG 1 item (chính khối này). Lúc đầu mình để nút và cụm
+    // ngôn ngữ là 2 item TÁCH RỜI ngay trong right_to_left — vị trí của cụm
+    // ngôn ngữ khi đó được tính DỰA TRÊN kích thước nút vừa đo được ở CHÍNH
+    // frame đó, nên 2 item bị phụ thuộc dây chuyền vào nhau thay vì đứng
+    // độc lập. Gộp lại còn 1 item duy nhất loại bỏ hẳn kiểu phụ thuộc đó —
+    // bên trong khối vẫn là `ui.horizontal` bình thường (trái->phải), không
+    // còn chỗ nào phải "ép" vị trí theo kích thước đo được của phần tử khác.
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        // Nút to, nổi bật theo yêu cầu Phần 1; logic lưu thật (Phần 5) nối
-        // qua export::save_all — lặp toàn bộ file New, ghi từng ngôn ngữ đã
-        // tích ra đĩa cạnh file gốc, tự chống ghi đè bằng hậu tố _v2...
-        let start_btn = egui::Button::new(egui::RichText::new("▶ Bắt đầu").size(16.0).strong())
-            .min_size(egui::vec2(160.0, 40.0))
-            .fill(egui::Color32::from_rgb(35, 120, 80));
-
-        // SỬA LỖI: làm mờ (disable) nút trong lúc còn bản dịch đang chờ API
-        // dịch online trả kết quả — trước đây nút luôn bấm được ngay, dùng
-        // bất cứ gì đang có trong translated_by_lang tại đúng thời điểm bấm
-        // mà KHÔNG đợi thread nền dịch xong, có thể xuất ra file lẫn lộn
-        // phần đã dịch/còn nguyên tiếng Anh trong im lặng. Giờ người dùng
-        // THẤY NGAY cần đợi (nút xám + tooltip) thay vì phải bấm thử rồi
-        // mới biết qua thông báo lỗi. export::save_all vẫn giữ nguyên phần
-        // chặn tương ứng làm lớp an toàn cuối (phòng trạng thái đổi đúng
-        // lúc giữa vẽ UI và bấm).
-        let translating =
-            state.config.use_online_translation_api && state.translator.has_pending_translations();
-        let start_resp = ui.add_enabled(!translating, start_btn).on_hover_text(if translating {
-            "Đang chờ API dịch online trả kết quả — đợi vài giây rồi thử lại."
-        } else {
-            "Lưu tất cả file đã nạp ra đĩa, theo các ngôn ngữ output đã chọn ở trên."
-        });
-
-        if start_resp.clicked() {
-            let report = crate::export::save_all(state);
-            state.status_message = Some(report.summary());
-        }
-
-        ui.add_space(16.0);
-
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new("Ngôn ngữ xuất").strong());
-            ui.horizontal(|ui| {
-                for lang in Language::ALL {
-                    let mut checked = state.config.output_languages.contains(&lang);
-                    if ui.checkbox(&mut checked, lang.label()).changed() {
-                        if checked {
-                            state.config.output_languages.insert(lang);
-                        } else {
-                            state.config.output_languages.remove(&lang);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Ngôn ngữ xuất").strong());
+                ui.horizontal(|ui| {
+                    for lang in Language::ALL {
+                        let mut checked = state.config.output_languages.contains(&lang);
+                        if ui.checkbox(&mut checked, lang.label()).changed() {
+                            if checked {
+                                state.config.output_languages.insert(lang);
+                            } else {
+                                state.config.output_languages.remove(&lang);
+                            }
+                            needs_rebuild = true;
                         }
-                        needs_rebuild = true;
                     }
-                }
+                });
             });
+
+            ui.add_space(16.0);
+
+            // Nút to, nổi bật theo yêu cầu Phần 1; logic lưu thật (Phần 5) nối
+            // qua export::save_all — lặp toàn bộ file New, ghi từng ngôn ngữ
+            // đã tích ra đĩa cạnh file gốc, tự chống ghi đè bằng hậu tố _v2...
+            let start_btn = egui::Button::new(egui::RichText::new("▶ Bắt đầu").size(16.0).strong())
+                .min_size(egui::vec2(160.0, 40.0))
+                .fill(egui::Color32::from_rgb(35, 120, 80));
+
+            // SỬA LỖI: làm mờ (disable) nút trong lúc còn bản dịch đang chờ
+            // API dịch online trả kết quả — trước đây nút luôn bấm được
+            // ngay, dùng bất cứ gì đang có trong translated_by_lang tại
+            // đúng thời điểm bấm mà KHÔNG đợi thread nền dịch xong, có thể
+            // xuất ra file lẫn lộn phần đã dịch/còn nguyên tiếng Anh trong
+            // im lặng. export::save_all vẫn giữ nguyên phần chặn tương ứng
+            // làm lớp an toàn cuối.
+            let translating = state.config.use_online_translation_api
+                && state.translator.has_pending_translations();
+            let start_resp = ui.add_enabled(!translating, start_btn).on_hover_text(if translating {
+                "Đang chờ API dịch online trả kết quả — đợi vài giây rồi thử lại."
+            } else {
+                "Lưu tất cả file đã nạp ra đĩa, theo các ngôn ngữ output đã chọn ở trên."
+            });
+
+            if start_resp.clicked() {
+                let report = crate::export::save_all(state);
+                state.status_message = Some(report.summary());
+            }
         });
     });
 
