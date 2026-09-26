@@ -171,40 +171,13 @@ pub struct OldCandidate {
     pub sig: String,
 }
 
-/// 4 hậu tố mà `state::Language::id_suffix()` chèn vào cuối data-builder-id
-/// lúc export. Liệt kê lại Ở ĐÂY (không import state::Language) để tránh
-/// tagger phụ thuộc NGƯỢC lên state (state đã phụ thuộc lên tagger) — đánh
-/// đổi: trùng lặp thủ công với id_suffix(), chấp nhận được vì đây là enum
-/// đóng 4 giá trị, thêm ngôn ngữ mới vốn dĩ đã phải sửa nhiều nơi ở state.rs.
-const KNOWN_LANG_ID_SUFFIXES: &[&str] = &["_en", "_vi", "_zh", "_ja"];
-
-/// Bóc hậu tố ngôn ngữ khỏi 1 data-builder-id đọc từ file Old — LẶP tới khi
-/// hết (không chỉ 1 lần) để tự phục hồi cả id đã lỡ bị cộng dồn TRƯỚC khi có
-/// fix này (vd "..._en_en").
-///
-/// Cần vì người dùng thả thẳng 1 file ĐÃ EXPORT (vd "index_en.html", id đã
-/// có sẵn "..._en") làm Old. Không bóc thì: (a) matching.rs giữ NGUYÊN id đó
-/// cho phần tử khớp, rồi export lại bị `append_id_suffix` cộng thêm hậu tố
-/// của NGÔN NGỮ ĐANG XUẤT — phình dần mỗi vòng Update ("..._en_en"), hoặc
-/// sai hẳn nếu xuất sang ngôn ngữ khác Old ("..._en_vi"); (b) TRAILING_NUMBER
-/// trong matching.rs (^(.*)_(\d+)$) không nhận ra số cuối vì id không còn
-/// kết thúc bằng số, seed_counter bỏ qua im lặng.
-fn strip_known_lang_suffix(id: &str) -> &str {
-    let mut base = id;
-    while let Some(next) = KNOWN_LANG_ID_SUFFIXES.iter().find_map(|s| base.strip_suffix(s)) {
-        base = next;
-    }
-    base
-}
-
 pub fn extract_old_candidates(document: &Html) -> Vec<OldCandidate> {
     document
         .select(&TAGGED_ELEMENTS)
         .filter_map(|el| {
             let elem = el.value();
             let tag_type = elem.attr("data-editable")?.to_string();
-            let existing_builder_id =
-                strip_known_lang_suffix(elem.attr("data-builder-id")?).to_string();
+            let existing_builder_id = elem.attr("data-builder-id")?.to_string();
             let full_text = el.text().collect::<String>().trim().to_string();
             let sig = compute_signature(
                 elem.name(),

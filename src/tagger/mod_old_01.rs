@@ -158,23 +158,6 @@ mod tests {
     }
 
     #[test]
-    fn old_file_with_language_suffixed_id_gets_stripped_before_inheriting() {
-        // Old là file ĐÃ EXPORT (vd "index_en.html"), id bên trong đã có sẵn
-        // "_en" — phải bóc trước khi kế thừa, xem detect::strip_known_lang_suffix.
-        let old_html = r#"<html><body>
-            <p data-builder-id="page_text_1_en" data-editable="text">Giu nguyen noi dung nay.</p>
-        </body></html>"#;
-        let new_html = r#"<html><body>
-            <p>Giu nguyen noi dung nay.</p>
-        </body></html>"#;
-
-        let output = tag_html(new_html, Some(old_html));
-
-        assert!(output.contains(r#"data-builder-id="page_text_1""#));
-        assert!(!output.contains(r#"data-builder-id="page_text_1_en""#));
-    }
-
-    #[test]
     fn inherits_id_via_positional_replace_when_only_href_stays_same() {
         // sig của link = href + text[:30] (xem compute_signature), nên href
         // giữ nguyên nhưng text đổi HẲN vẫn cho ra sig KHÁC NHAU — không khớp

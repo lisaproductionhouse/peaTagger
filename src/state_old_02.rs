@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppMode {
@@ -101,13 +101,11 @@ pub struct ConfigState {
 
 impl Default for ConfigState {
     fn default() -> Self {
-        Self {
-            output_languages: HashSet::from([Language::En, Language::Vi]),
-            use_online_translation_api: false,
-            // Phần 5 nói rõ tuỳ chọn hậu tố "mặc định bật" — Phần 1 mình từng
-            // đặt false vì lúc đó chưa có thông tin này, sửa lại cho khớp.
-            append_lang_suffix_to_id: true,
-        }
+		Self {
+			output_languages: HashSet::from([Language::En, Language::Vi]), // trước: HashSet::new()
+			use_online_translation_api: false,
+			append_lang_suffix_to_id: true,
+		}
     }
 }
 
@@ -160,35 +158,6 @@ impl Default for AppState {
     }
 }
 
-/// Bóc hậu tố phiên bản `_vN` (export::unique_path chèn khi tránh ghi đè)
-/// rồi hậu tố ngôn ngữ (Language::id_suffix chèn lúc export) khỏi TÊN FILE,
-/// để so khớp New<->Old theo tên gốc của template — Old thực tế luôn là 1
-/// file ĐÃ EXPORT (vd "index_en.html"), không bao giờ trùng tên nguyên văn
-/// với New ("index.html"). Không cần lặp nhiều lớp như bên detect.rs: mỗi
-/// loại hậu tố chỉ xuất hiện tối đa 1 lần trong 1 tên file thật.
-fn match_key(path: &Path) -> String {
-    let mut key = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-
-    if let Some(idx) = key.rfind("_v") {
-        let digits = &key[idx + 2..];
-        if !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()) {
-            key.truncate(idx);
-        }
-    }
-
-    for lang in Language::ALL {
-        if let Some(base) = key.strip_suffix(lang.id_suffix()) {
-            key = base.to_string();
-            break;
-        }
-    }
-
-    key
-}
-
 impl AppState {
     pub fn add_file(&mut self, path: PathBuf, role: FileRole) {
         let id = FileId(self.next_file_id);
@@ -229,22 +198,22 @@ impl AppState {
         self.selected_file = None;
     }
 
-    /// Khớp file New<->Old theo match_key (tên gốc, đã bóc hậu tố _vN và
-    /// _en/_vi/_zh/_ja) -> chạy tagger (Phần 3) -> dịch sang từng ngôn ngữ
-    /// output đã chọn (Phần 4). Gọi lại sau mỗi lần danh sách file HOẶC kết
-    /// quả dịch nền thay đổi.
+    /// Khớp file New<->Old theo TÊN FILE -> chạy tagger (Phần 3) -> dịch
+    /// sang từng ngôn ngữ output đã chọn (Phần 4). Gọi lại sau mỗi lần danh
+    /// sách file HOẶC kết quả dịch nền thay đổi.
     ///
     /// Chạy lại toàn bộ mỗi lần thay vì cập nhật tăng dần — đơn giản hơn
     /// nhiều để tránh bug; dict lookup là HashMap nên rẻ, tagger cũng chỉ
     /// parse lại text đã có sẵn trong bộ nhớ, không có I/O nào trong hàm này.
     pub fn rebuild_pipeline(&mut self) {
-        // HashMap: 2 file Old khác nhau tình cờ cùng match_key thì file xử
-        // lý SAU ghi đè file trước.
-        let old_by_key: HashMap<String, String> = self
+        let old_by_name: HashMap<String, String> = self
             .files
             .iter()
             .filter(|f| f.role == FileRole::Old)
-            .map(|f| (match_key(&f.path), f.content.clone()))
+            .filter_map(|f| {
+                let name = f.path.file_name()?.to_string_lossy().into_owned();
+                Some((name, f.content.clone()))
+            })
             .collect();
 
         let target_langs: Vec<Language> = self.config.output_languages.iter().copied().collect();
@@ -255,7 +224,11 @@ impl AppState {
             if file.error.is_some() {
                 continue;
             }
-            let matched = old_by_key.get(&match_key(&file.path)).cloned();
+            let matched = file
+                .path
+                .file_name()
+                .and_then(|n| old_by_name.get(&n.to_string_lossy().into_owned()))
+                .cloned();
 
             let tagged = crate::tagger::tag_html(&file.content, matched.as_deref());
 
@@ -280,24 +253,5 @@ impl AppState {
 
         self.translation_stats = total_stats;
         self.translator.spawn_pending_batch();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn match_key_strips_version_then_language_suffix() {
-        assert_eq!(match_key(Path::new("index.html")), "index");
-        assert_eq!(match_key(Path::new("index_en.html")), "index");
-        assert_eq!(match_key(Path::new("index_en_v2.html")), "index");
-        assert_eq!(match_key(Path::new("index_en_v10.html")), "index");
-    }
-
-    #[test]
-    fn match_key_does_not_mistake_a_real_name_for_a_version_suffix() {
-        // "_v" theo sau không phải toàn chữ số -> không bị coi là _vN.
-        assert_eq!(match_key(Path::new("hero_video.html")), "hero_video");
     }
 }
