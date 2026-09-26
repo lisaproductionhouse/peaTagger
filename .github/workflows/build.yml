@@ -11,16 +11,11 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Đổi từ ubuntu-latest sang windows-latest để build file .exe cho Windows
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
-
-    # Bước này vô cùng quan trọng đối với các dự án GUI (nhu eframe/egui) trên Linux
-    - name: Install dependencies (GUI libs)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
@@ -31,9 +26,9 @@ jobs:
     - name: Build Release
       run: cargo build --release
 
-    # BƯỚC THÊM MỚI: Xuất file chạy (binary) ra giao diện GitHub Actions
+    # Xuất file chạy .exe ra ngoài giao diện GitHub Actions
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: peamark-html-tagger-linux
-        path: target/release/peamark_html_tagger
+        name: peamark-html-tagger-windows
+        path: target/release/peamark_html_tagger.exe
