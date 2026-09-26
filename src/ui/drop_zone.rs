@@ -73,37 +73,60 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
     // là điều khiển quyết định việc hiện/ẩn ô thứ 2.
     let show_old_zone = state.mode == AppMode::Update;
     ui.columns(if show_old_zone { 2 } else { 1 }, |cols| {
-        state.new_zone_rect = zone(&mut cols[0], "📥 File Mới", "Kéo thả file/thư mục .html vào đây");
+        state.new_zone_rect = zone(&mut cols[0], "📥 File Mới");
         if show_old_zone {
-            state.old_zone_rect =
-                zone(&mut cols[1], "🗂 File Cũ", "Kéo thả bản đã tag/dịch trước đó vào đây");
+            state.old_zone_rect = zone(&mut cols[1], "🗂 File Cũ");
         }
     });
     ui.add_space(6.0);
 }
 
-fn zone(ui: &mut egui::Ui, title: &str, hint: &str) -> egui::Rect {
+/// Vẽ 1 ô kéo-thả: tiêu đề ngắn + dấu "+" lớn ở giữa (thay cho câu hướng dẫn
+/// dài dòng trước đây — "+" là quy ước phổ biến hơn cho "thả nội dung vào
+/// đây"), viền NÉT ĐỨT bao quanh để nhấn mạnh đây là vùng thả file.
+///
+/// egui::Frame chỉ hỗ trợ viền LIỀN NÉT qua `.stroke()` (không có tuỳ chọn
+/// nét đứt) nên khung nét đứt được vẽ THỦ CÔNG bằng `Shape::dashed_line`
+/// trên 1 đường khép kín nối 4 góc của `response.rect`, vẽ ĐÈ lên sau khi
+/// Frame đã submit xong nội dung bên trong — không chồng lấn gì vì viền nằm
+/// sát mép còn nội dung có inner_margin nằm lùi vào giữa.
+fn zone(ui: &mut egui::Ui, title: &str) -> egui::Rect {
     let is_hovering_file = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
-    let stroke_color = if is_hovering_file {
+    let accent_color = if is_hovering_file {
         egui::Color32::from_rgb(90, 160, 255)
     } else {
         egui::Color32::GRAY
     };
 
     let response = egui::Frame::default()
-        .stroke(egui::Stroke::new(2.0, stroke_color))
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.set_min_height(80.0);
             ui.vertical_centered(|ui| {
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new(title).strong().size(15.0));
-                ui.label(egui::RichText::new(hint).weak().small());
-                ui.add_space(8.0);
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(title).strong().size(13.0));
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new("+").size(26.0).color(accent_color));
+                ui.add_space(6.0);
             });
         })
         .response;
 
-    response.rect
+    let rect = response.rect;
+    let corners = vec![
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+        rect.left_top(),
+    ];
+    ui.painter().extend(egui::Shape::dashed_line(
+        &corners,
+        egui::Stroke::new(2.0, accent_color),
+        6.0,
+        4.0,
+    ));
+
+    rect
 }
