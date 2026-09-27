@@ -7,29 +7,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
 
     ui.add_space(4.0);
 
-    // 3 nhóm ĐẦU (Tùy chọn, Ngôn ngữ xuất, trạng thái/thống kê) xếp tuần tự
+    // 3 nhóm ĐẦU (Ngôn ngữ xuất, Tùy chọn, trạng thái/thống kê) xếp tuần tự
     // bình thường bằng ui.vertical/ui.separator — cơ chế đã ổn định xuyên
     // suốt cả app, không có gì đặc biệt. Riêng nút Bắt đầu (nhóm cuối) mới
     // cần with_layout để đẩy sát mép phải — xem comment ngay phía trên nó.
     ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.label(egui::RichText::new("Tùy chọn").strong());
-            if ui
-                .checkbox(&mut state.config.use_online_translation_api, "Dùng API dịch online")
-                .changed()
-            {
-                needs_rebuild = true;
-            }
-            if ui
-                .checkbox(&mut state.config.append_lang_suffix_to_id, "Thêm hậu tố ngôn ngữ vào ID")
-                .changed()
-            {
-                needs_rebuild = true;
-            }
-        });
-
-        ui.separator();
-
+        // Ngôn ngữ xuất ĐỨNG ĐẦU (góc trái cùng) theo yêu cầu mới.
         ui.vertical(|ui| {
             ui.label(egui::RichText::new("Ngôn ngữ xuất").strong());
             ui.horizontal(|ui| {
@@ -49,20 +32,45 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
 
         ui.separator();
 
+        // Tùy chọn: 2 checkbox xếp CÙNG 1 HÀNG NGANG (trước đây xếp chồng 2
+        // dòng) — nhãn rút ngắn lại, giải thích đầy đủ chuyển sang tooltip
+        // hover để không chiếm chỗ nhưng vẫn tra cứu được khi cần.
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("Tùy chọn").strong());
+            ui.horizontal(|ui| {
+                if ui
+                    .checkbox(&mut state.config.use_online_translation_api, "API dịch online")
+                    .on_hover_text("Dùng API dịch online cho những đoạn chưa có sẵn trong từ điển cục bộ.")
+                    .changed()
+                {
+                    needs_rebuild = true;
+                }
+                if ui
+                    .checkbox(&mut state.config.append_lang_suffix_to_id, "Hậu tố ngôn ngữ")
+                    .on_hover_text("Thêm hậu tố ngôn ngữ (_en/_vi/_zh/_ja) vào data-builder-id khi xuất file.")
+                    .changed()
+                {
+                    needs_rebuild = true;
+                }
+            });
+        });
+
+        ui.separator();
+
         ui.vertical(|ui| {
             if let Some(msg) = &state.status_message {
                 ui.weak(msg);
             }
 
-            // Thống kê: bao nhiêu đoạn khớp sẵn trong từ điển (local_dict.json),
-            // bao nhiêu vừa dịch qua API online TRONG phiên này, bao nhiêu bị
-            // CHỦ ĐỘNG bỏ qua không gửi API (số đt/email/placeholder giả — xem
-            // translate::should_skip_api), còn lại bao nhiêu chưa dịch được.
-            // Chỉ hiện khi đã chọn ít nhất 1 ngôn ngữ output.
+            // Thống kê rút gọn (bản đầy đủ trước đây quá dài, dễ chèn lên
+            // cụm bên cạnh khi xếp lại layout) — vẫn đủ 4 số cốt lõi: khớp
+            // từ điển, dịch qua API, chủ động bỏ qua (số đt/email/placeholder
+            // giả — xem translate::should_skip_api), còn lại chưa dịch. Chỉ
+            // hiện khi đã chọn ít nhất 1 ngôn ngữ output.
             if !state.config.output_languages.is_empty() {
                 let s = &state.translation_stats;
                 ui.weak(format!(
-                    "📊 Đã dịch: {} (từ điển) + {} (online) — {} bỏ qua (số đt/email/placeholder) — còn {} chưa dịch",
+                    "📊 {} từ điển + {} online · {} bỏ qua · {} chưa dịch",
                     s.dict_hits, s.online_hits, s.skipped_filler, s.untranslated
                 ));
             }
