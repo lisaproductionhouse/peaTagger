@@ -7,8 +7,15 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
 
     ui.add_space(4.0);
 
-    // Hàng 1: Tùy chọn + trạng thái/thống kê — thông tin phụ trợ, tách khỏi
-    // cụm hành động chính (Ngôn ngữ xuất | Bắt đầu) ở hàng 2 bên dưới.
+    // BỎ with_layout(right_to_left) đã dùng ở bản trước — thực tế nó không chỉ
+    // "dịch chuyển nhẹ" mà làm MẤT hẳn nút và đẩy cụm ngôn ngữ xuống hàng
+    // riêng (chưa xác định chắc được cơ chế chính xác trong egui 0.36, khả
+    // năng cao là horizontal LTR lồng trong RTL không được cấp đủ bề rộng
+    // ngay từ đầu). Quay lại `ui.horizontal` + `ui.vertical` + `ui.separator`
+    // tuần tự — ĐÚNG cơ chế đã dùng ổn định xuyên suốt cả app (drop_zone,
+    // preview, và chính panel này ở các bản trước) — chỉ đổi THỨ TỰ cột để
+    // "Ngôn ngữ xuất" nằm ngay bên trái "Bắt đầu" (đều ở 2 cột cuối, thiên
+    // về phía phải panel) thay vì canh CHÍNH XÁC theo mép phải cửa sổ.
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.label(egui::RichText::new("Tùy chọn").strong());
@@ -26,62 +33,28 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
             }
         });
 
-        if let Some(msg) = &state.status_message {
-            ui.separator();
-            ui.weak(msg);
-        }
+        ui.separator();
 
-        // TÍNH NĂNG: thống kê rõ ràng — bao nhiêu đoạn khớp sẵn trong từ điển
-        // (local_dict.json), bao nhiêu vừa dịch được qua API online TRONG
-        // phiên này, bao nhiêu bị CHỦ ĐỘNG bỏ qua không gửi API (số đt/email/
-        // placeholder La-tinh giả — xem translate::should_skip_api), còn lại
-        // bao nhiêu chưa dịch được. Chỉ hiện khi đã chọn ít nhất 1 ngôn ngữ
-        // output (tránh hiện "0/0/0" vô nghĩa lúc chưa cấu hình).
-        if !state.config.output_languages.is_empty() {
-            ui.separator();
-            let s = &state.translation_stats;
-            ui.weak(format!(
-                "📊 Đã dịch: {} (từ điển) + {} (online) — {} bỏ qua (số đt/email/placeholder) — còn {} chưa dịch",
-                s.dict_hits, s.online_hits, s.skipped_filler, s.untranslated
-            ));
-        }
-    });
-
-    ui.add_space(10.0);
-
-    // Hàng 2: cụm "Ngôn ngữ xuất | Bắt đầu" đẩy sát góc DƯỚI-PHẢI — đúng
-    // chuẩn UI/UX: hành động chính (CTA) cùng điều kiện tiên quyết trực tiếp
-    // của nó (chọn ngôn ngữ output) nằm ở góc phải, tách khỏi khối Tùy chọn.
-    // QUAN TRỌNG: gộp cụm ngôn ngữ + nút thành 1 khối `ui.horizontal` DUY
-    // NHẤT rồi mới đẩy CẢ KHỐI sang phải — with_layout(right_to_left) ở đây
-    // chỉ nhận ĐÚNG 1 item (chính khối này). Lúc đầu mình để nút và cụm
-    // ngôn ngữ là 2 item TÁCH RỜI ngay trong right_to_left — vị trí của cụm
-    // ngôn ngữ khi đó được tính DỰA TRÊN kích thước nút vừa đo được ở CHÍNH
-    // frame đó, nên 2 item bị phụ thuộc dây chuyền vào nhau thay vì đứng
-    // độc lập. Gộp lại còn 1 item duy nhất loại bỏ hẳn kiểu phụ thuộc đó —
-    // bên trong khối vẫn là `ui.horizontal` bình thường (trái->phải), không
-    // còn chỗ nào phải "ép" vị trí theo kích thước đo được của phần tử khác.
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Ngôn ngữ xuất").strong());
-                ui.horizontal(|ui| {
-                    for lang in Language::ALL {
-                        let mut checked = state.config.output_languages.contains(&lang);
-                        if ui.checkbox(&mut checked, lang.label()).changed() {
-                            if checked {
-                                state.config.output_languages.insert(lang);
-                            } else {
-                                state.config.output_languages.remove(&lang);
-                            }
-                            needs_rebuild = true;
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new("Ngôn ngữ xuất").strong());
+            ui.horizontal(|ui| {
+                for lang in Language::ALL {
+                    let mut checked = state.config.output_languages.contains(&lang);
+                    if ui.checkbox(&mut checked, lang.label()).changed() {
+                        if checked {
+                            state.config.output_languages.insert(lang);
+                        } else {
+                            state.config.output_languages.remove(&lang);
                         }
+                        needs_rebuild = true;
                     }
-                });
+                }
             });
+        });
 
-            ui.add_space(16.0);
+        ui.separator();
 
+        ui.vertical(|ui| {
             // Nút to, nổi bật theo yêu cầu Phần 1; logic lưu thật (Phần 5) nối
             // qua export::save_all — lặp toàn bộ file New, ghi từng ngôn ngữ
             // đã tích ra đĩa cạnh file gốc, tự chống ghi đè bằng hậu tố _v2...
@@ -107,6 +80,22 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
             if start_resp.clicked() {
                 let report = crate::export::save_all(state);
                 state.status_message = Some(report.summary());
+            }
+            if let Some(msg) = &state.status_message {
+                ui.weak(msg);
+            }
+
+            // Thống kê: bao nhiêu đoạn khớp sẵn trong từ điển (local_dict.json),
+            // bao nhiêu vừa dịch qua API online TRONG phiên này, bao nhiêu bị
+            // CHỦ ĐỘNG bỏ qua không gửi API (số đt/email/placeholder giả — xem
+            // translate::should_skip_api), còn lại bao nhiêu chưa dịch được.
+            // Chỉ hiện khi đã chọn ít nhất 1 ngôn ngữ output.
+            if !state.config.output_languages.is_empty() {
+                let s = &state.translation_stats;
+                ui.weak(format!(
+                    "📊 Đã dịch: {} (từ điển) + {} (online) — {} bỏ qua (số đt/email/placeholder) — còn {} chưa dịch",
+                    s.dict_hits, s.online_hits, s.skipped_filler, s.untranslated
+                ));
             }
         });
     });
