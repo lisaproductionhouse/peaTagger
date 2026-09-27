@@ -1,5 +1,5 @@
 [package]
-name = "auto_html_tagger"
+name = "peaTagger"
 version = "0.1.0"
 edition = "2021"
 
