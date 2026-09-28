@@ -217,10 +217,16 @@ impl AppState {
         self.files.iter().find(|f| f.id == id)
     }
 
-    pub fn remove_selected(&mut self) {
-        if let Some(id) = self.selected_file.take() {
-            self.files.retain(|f| f.id != id);
+    /// Xóa đúng 1 file theo id — dùng cho nút xóa nhanh (✖) hiện khi hover
+    /// từng dòng trong sidebar (thay cho nút "Xóa mục chọn" cũ, vốn chỉ xóa
+    /// được file ĐANG CHỌN chứ không xóa được file bất kỳ). Nếu file bị xóa
+    /// đang là file đang chọn thì bỏ chọn luôn, tránh `selected_file` trỏ tới
+    /// 1 id không còn tồn tại.
+    pub fn remove_file(&mut self, id: FileId) {
+        if self.selected_file == Some(id) {
+            self.selected_file = None;
         }
+        self.files.retain(|f| f.id != id);
         self.rebuild_pipeline();
     }
 
