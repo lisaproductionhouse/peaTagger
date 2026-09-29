@@ -49,23 +49,38 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
 
     let pending = file.pending_html.as_deref().unwrap_or("");
 
-    let mut left_title = "Code gốc";
-    let mut right_title = "Đã gắn tag (chưa dịch)".to_string();
-    let mut right_content: &str = pending;
-    let mut diff_jobs: Option<(egui::text::LayoutJob, egui::text::LayoutJob)> = None;
-
-    if state.show_diff {
-        left_title = "Code gốc (đỏ = bị xoá)";
-        right_title = "Đã gắn tag (xanh = mới thêm)".to_string();
-        diff_jobs = Some(crate::diff::build_diff_jobs(&file.content, pending));
+    let (left_title, right_title, right_raw): (&str, String, &str) = if state.show_diff {
+        ("Code gốc (đỏ = bị xoá)", "Đã gắn tag (xanh = mới thêm)".to_string(), pending)
     } else if let Some(lang) = state.preview_lang {
-        right_title = format!("Bản dịch {}", lang.label());
-        right_content = file
-            .translated_by_lang
-            .get(&lang)
-            .map(String::as_str)
-            .unwrap_or("(chưa có bản dịch — đang chờ API hoặc chưa bật ngôn ngữ này ở panel dưới)");
-    }
+        (
+            "Code gốc",
+            format!("Bản dịch {}", lang.label()),
+            file.translated_by_lang
+                .get(&lang)
+                .map(String::as_str)
+                .unwrap_or("(chưa có bản dịch — đang chờ API hoặc chưa bật ngôn ngữ này ở panel dưới)"),
+        )
+    } else {
+        ("Code gốc", "Đã gắn tag (chưa dịch)".to_string(), pending)
+    };
+
+    // LUÔN dựng job đã GIÓNG HÀNG cho cả 2 vế (xem diff.rs) — chỉ khác nhau
+    // ở việc có tô đỏ/xanh hay không. Trước đây chỉ chế độ "Hiện diff" mới
+    // gióng hàng, còn Đã tag/EN/VI/ZH/JA hiện thẳng text thô — nhưng những
+    // cặp đó CŨNG lệch dòng (html5ever tổ chức lại xuống dòng khi parse rồi
+    // serialize lại, không chỉ do gắn thêm attribute), nên giờ áp dụng đều.
+    let (left_job, right_job) = if state.show_diff {
+        crate::diff::build_diff_jobs(&file.content, right_raw)
+    } else {
+        crate::diff::build_aligned_plain_jobs(&file.content, right_raw)
+    };
+
+    // Dùng CHÍNH text đã gióng hàng (job.text — có thể dài hơn nội dung gốc
+    // do được chèn thêm dòng trống bù) làm buffer cho TextEdit, thay vì
+    // content/right_raw gốc — để buffer và phần hiển thị luôn khớp ký tự-với
+    // -ký tự, giữ đúng cơ chế cursor/selection mô tả ở editor_pane.
+    let left_text = left_job.text.clone();
+    let right_text = right_job.text.clone();
 
     let spacing = 6.0;
     let total_width = ui.available_width();
@@ -77,8 +92,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
         ui.allocate_ui(egui::vec2(left_width, available_height), |ui| {
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(left_title).strong());
-                let job = diff_jobs.as_ref().map(|(left, _)| left.clone());
-                editor_pane(ui, "left_pane", &file.content, job, &mut state.split_scroll.offset_y);
+                editor_pane(ui, "left_pane", &left_text, left_job, &mut state.split_scroll.offset_y);
             });
         });
 
@@ -99,55 +113,53 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
         ui.allocate_ui(egui::vec2(right_width, available_height), |ui| {
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new(right_title).strong());
-                let job = diff_jobs.as_ref().map(|(_, right)| right.clone());
-                editor_pane(ui, "right_pane", right_content, job, &mut state.split_scroll.offset_y);
+                editor_pane(ui, "right_pane", &right_text, right_job, &mut state.split_scroll.offset_y);
             });
         });
     });
 }
 
 /// Pane chỉ đọc nhưng vẫn select/copy được, dùng trick chính thức của egui:
-/// đưa `&mut &str` vào TextEdit thay vì `&mut String`. Nếu `colored` có giá
-/// trị (chế độ diff), dùng `.layouter()` để tô màu theo LayoutJob đã tính sẵn
-/// ở diff.rs thay vì để egui tự layout monospace mặc định — nội dung THỰC của
-/// TextBuffer (`content`) và nội dung trong LayoutJob luôn khớp ký tự-với-ký-tự
-/// (job được build từ đúng 2 chuỗi content/pending_html), nên cursor/selection
-/// vẫn định vị đúng dù việc TÔ MÀU đến từ 1 nguồn khác (job) chứ không phải
-/// buf mà layouter nhận vào.
+/// đưa `&mut &str` vào TextEdit thay vì `&mut String`. Luôn dùng `.layouter()`
+/// để vẽ theo `job` đã tính sẵn ở diff.rs (tô màu hoặc không tuỳ chế độ) thay
+/// vì để egui tự layout monospace mặc định — `content` truyền vào ĐÃ CHÍNH LÀ
+/// `job.text` (xem lời gọi ở show()) nên buffer và phần hiển thị luôn khớp
+/// ký tự-với-ký tự, cursor/selection định vị đúng dù việc vẽ đến từ `job`
+/// chứ không phải buf mà layouter nhận vào.
 ///
-/// Đồng bộ scroll: 2 pane dùng chung 1 biến offset trong AppState — xem giải
-/// thích chi tiết ở bản gốc hàm này từ Phần 1.
+/// KHÔNG override `job.wrap.max_width` theo `wrap_width` egui gợi ý (khác
+/// bản trước) — job đã tự đặt max_width = INFINITY ở diff.rs (tắt hẳn xuống
+/// dòng tự động) để 1 dòng logic luôn chiếm đúng 1 dòng hiển thị ở CẢ 2 bên,
+/// không phụ thuộc bề rộng khung. Dòng dài thì tràn ngang — `ScrollArea::both()`
+/// bên dưới cho cuộn ngang để xem hết, cuộn dọc vẫn đồng bộ 2 bên như cũ.
+///
+/// Đồng bộ scroll: 2 pane dùng chung 1 biến offset dọc trong AppState — xem
+/// giải thích chi tiết ở bản gốc hàm này từ Phần 1. Chỉ set offset DỌC qua
+/// `vertical_scroll_offset` (không phải `scroll_offset` với x cứng = 0.0 như
+/// bản trước) — đặt cứng x=0.0 mỗi frame sẽ khiến cuộn ngang không bao giờ
+/// giữ được vị trí (bị kéo về 0 ngay frame sau), cuộn ngang cần để MỖI BÊN
+/// tự quản lý độc lập.
 fn editor_pane(
     ui: &mut egui::Ui,
     id_salt: &str,
     content: &str,
-    colored: Option<egui::text::LayoutJob>,
+    job: egui::text::LayoutJob,
     shared_offset: &mut f32,
 ) {
     let mut text = content;
-    let output = egui::ScrollArea::vertical()
+    let output = egui::ScrollArea::both()
         .id_salt(id_salt)
         .auto_shrink([false, false])
-        .scroll_offset(egui::vec2(0.0, *shared_offset))
+        .vertical_scroll_offset(*shared_offset)
         .show(ui, |ui| {
-            if let Some(job) = colored {
-                let mut layouter = move |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, wrap_width: f32| {
-                    let mut job = job.clone();
-                    job.wrap.max_width = wrap_width;
-                    ui.fonts_mut(|f| f.layout_job(job))
-                };
-                ui.add(
-                    egui::TextEdit::multiline(&mut text)
-                        .desired_width(f32::INFINITY)
-                        .layouter(&mut layouter),
-                );
-            } else {
-                ui.add(
-                    egui::TextEdit::multiline(&mut text)
-                        .code_editor()
-                        .desired_width(f32::INFINITY),
-                );
-            }
+            let mut layouter = move |ui: &egui::Ui, _buf: &dyn egui::TextBuffer, _wrap_width: f32| {
+                ui.fonts_mut(|f| f.layout_job(job.clone()))
+            };
+            ui.add(
+                egui::TextEdit::multiline(&mut text)
+                    .desired_width(f32::INFINITY)
+                    .layouter(&mut layouter),
+            );
         });
 
     if (output.state.offset.y - *shared_offset).abs() > 0.5 {
