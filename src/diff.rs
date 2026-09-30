@@ -234,13 +234,25 @@ mod tests {
     }
 
     #[test]
-    fn plain_variant_aligns_the_same_way_without_color() {
-        // Trường hợp thực tế: html5ever gộp <!DOCTYPE html><html><head> về
-        // chung 1 dòng khi serialize lại dù bản gốc mỗi thẻ 1 dòng riêng.
-        let old = "<!DOCTYPE html>\n<html>\n<head>\n<title>x</title>\n";
-        let new = "<!DOCTYPE html><html><head>\n<title>x</title>\n";
+    fn plain_variant_pads_blank_lines_when_serializer_merges_lines() {
+        // Ca thực tế người dùng gặp: <!DOCTYPE html>, <html lang="en">,
+        // <head> vốn 3 dòng riêng ở bản gốc, nhưng html5ever gộp thành 1
+        // dòng khi serialize lại bản đã tag. Nhờ mốc neo <title> khớp y hệt
+        // nhau ngay sau đó, thuật toán nhận ra đây là 1 khối "3 dòng cũ -> 1
+        // dòng mới" và phải bù đúng 2 dòng TRỐNG vào cột phải để <title>
+        // không bị đẩy lệch lên 2 hàng so với cột trái.
+        let old = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<title>x</title>\n";
+        let new = "<!DOCTYPE html><html lang=\"en\"><head>\n<title>x</title>\n";
         let (left, right) = build_aligned_plain_jobs(old, new);
+
         assert_eq!(line_count(&left), line_count(&right));
+        // Kiểm tra CỤ THỂ cấu trúc (không chỉ tổng số dòng tình cờ khớp):
+        // dòng gộp, rồi 2 dòng trống, rồi mới tới <title> — đúng thứ tự.
+        let right_lines: Vec<&str> = right.text.lines().collect();
+        assert_eq!(right_lines[0], "<!DOCTYPE html><html lang=\"en\"><head>");
+        assert_eq!(right_lines[1], "");
+        assert_eq!(right_lines[2], "");
+        assert_eq!(right_lines[3], "<title>x</title>");
     }
 
     #[test]
