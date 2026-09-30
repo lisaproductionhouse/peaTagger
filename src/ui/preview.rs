@@ -49,11 +49,22 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
 
     let pending = file.pending_html.as_deref().unwrap_or("");
 
-    let (left_title, right_title, right_raw): (&str, String, &str) = if state.show_diff {
-        ("Code gốc (đỏ = bị xoá)", "Đã gắn tag (xanh = mới thêm)".to_string(), pending)
+    // Vế trái ĐỔI theo chế độ: so "Hiện diff"/"Đã tag" thì vế trái là Code
+    // gốc (đúng nghĩa "trước khi gắn tag"); nhưng khi xem 1 NGÔN NGỮ cụ thể,
+    // cái cần đối chiếu là "trước khi DỊCH" — tức bản ĐÃ GẮN TAG
+    // (pending_html), không phải Code gốc thô (Code gốc còn chưa có
+    // data-builder-id/data-editable để mà so khớp với bản dịch).
+    let (left_title, left_raw, right_title, right_raw): (&str, &str, String, &str) = if state.show_diff {
+        (
+            "Code gốc (đỏ = bị xoá)",
+            file.content.as_str(),
+            "Đã gắn tag (xanh = mới thêm)".to_string(),
+            pending,
+        )
     } else if let Some(lang) = state.preview_lang {
         (
-            "Code gốc",
+            "Đã gắn tag (chưa dịch)",
+            pending,
             format!("Bản dịch {}", lang.label()),
             file.translated_by_lang
                 .get(&lang)
@@ -61,18 +72,24 @@ pub fn show(ui: &mut egui::Ui, state: &mut AppState) {
                 .unwrap_or("(chưa có bản dịch — đang chờ API hoặc chưa bật ngôn ngữ này ở panel dưới)"),
         )
     } else {
-        ("Code gốc", "Đã gắn tag (chưa dịch)".to_string(), pending)
+        ("Code gốc", file.content.as_str(), "Đã gắn tag (chưa dịch)".to_string(), pending)
     };
 
-    // LUÔN dựng job đã GIÓNG HÀNG cho cả 2 vế (xem diff.rs) — chỉ khác nhau
-    // ở việc có tô đỏ/xanh hay không. Trước đây chỉ chế độ "Hiện diff" mới
-    // gióng hàng, còn Đã tag/EN/VI/ZH/JA hiện thẳng text thô — nhưng những
-    // cặp đó CŨNG lệch dòng (html5ever tổ chức lại xuống dòng khi parse rồi
-    // serialize lại, không chỉ do gắn thêm attribute), nên giờ áp dụng đều.
+    // 3 chế độ, 3 CÁCH TÔ MÀU khác hẳn nhau về bản chất:
+    // - "Hiện diff": diff CẤU TRÚC DÒNG (Code gốc <-> Đã gắn tag có thể lệch
+    //   dòng thật — html5ever tổ chức lại xuống dòng) -> build_diff_jobs.
+    // - Đang xem 1 ngôn ngữ: 2 bên CHẮC CHẮN cùng cấu trúc dòng (apply.rs
+    //   không đổi cấu trúc cây khi dịch) -> không cần diff dòng, chỉ cần
+    //   highlight ĐÚNG TỪNG ĐOẠN text node/thuộc tính có thể dịch ->
+    //   build_translation_highlight_jobs.
+    // - "Đã tag" (mặc định): vẫn có thể lệch dòng như "Hiện diff" (cùng lý
+    //   do html5ever) nhưng không cần tô đỏ/xanh -> build_aligned_plain_jobs.
     let (left_job, right_job) = if state.show_diff {
-        crate::diff::build_diff_jobs(&file.content, right_raw)
+        crate::diff::build_diff_jobs(left_raw, right_raw)
+    } else if state.preview_lang.is_some() {
+        crate::diff::build_translation_highlight_jobs(left_raw, right_raw)
     } else {
-        crate::diff::build_aligned_plain_jobs(&file.content, right_raw)
+        crate::diff::build_aligned_plain_jobs(left_raw, right_raw)
     };
 
     // Dùng CHÍNH text đã gióng hàng (job.text — có thể dài hơn nội dung gốc

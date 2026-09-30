@@ -1,5 +1,8 @@
 use eframe::egui;
+use scraper::{Html, Node, Selector};
 use similar::{ChangeTag, TextDiff};
+use std::ops::Range;
+use std::sync::LazyLock;
 
 /// So sánh `old` (code gốc) với `new` (bản còn lại — đã tag/đã dịch/pending)
 /// ở cả cấp DÒNG và TỪ, đồng thời GIÓNG HÀNG 2 cột theo CẢ 2 CHIỀU:
@@ -190,6 +193,243 @@ fn flush_block(
     pending_inserts.clear();
 }
 
+/// Selector tĩnh y hệt `translate/apply.rs::TAGGED_SELECTOR` — khai báo lại
+/// riêng ở đây (thay vì import từ module `translate`, vốn là `mod` riêng
+/// không public các item nội bộ) vì đây là diff/hiển thị, không phải bước
+/// dịch thật; trùng lặp 1 chuỗi selector tĩnh chấp nhận được.
+static TAGGED_SELECTOR: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("[data-editable]").expect("selector tĩnh hợp lệ"));
+
+/// 5 thuộc tính có thể dịch — ĐÚNG THỨ TỰ như `apply.rs::TRANSLATABLE_ATTRS`
+/// (thứ tự này quyết định thứ tự các "đơn vị dịch" xuất hiện trong danh sách
+/// trả về của `extract_translation_units`, PHẢI khớp cả 2 bên tagged/dịch).
+const TRANSLATABLE_ATTRS: [&str; 5] = ["placeholder", "alt", "title", "content", "value"];
+
+/// So sánh 2 bản ĐÃ GẮN TAG — bản TRƯỚC dịch (`tagged_html`, vd
+/// `pending_html`) và bản SAU dịch 1 ngôn ngữ cụ thể (`translated_html`) —
+/// tô màu theo TỪNG ĐOẠN text node/thuộc tính có thể dịch, KHÔNG theo dòng
+/// như `build_diff_jobs`/`build_aligned_plain_jobs` ở trên (2 hàm đó diff
+/// CẤU TRÚC DÒNG; đây là highlight NỘI DUNG DỊCH — bản chất khác hẳn). Không
+/// cần thuật toán diff dòng ở đây: apply.rs (Phần 4) không bao giờ thêm/xoá/
+/// di chuyển node khi dịch, chỉ đổi text bên trong node/thuộc tính đã có sẵn
+/// — nên 2 bản LUÔN cùng cấu trúc dòng tuyệt đối, không có gì để "gióng
+/// hàng" ở cấp dòng cả.
+///
+/// CÁCH XÁC ĐỊNH "phần nào là 1 đơn vị có thể dịch": lặp lại CHÍNH XÁC logic
+/// duyệt cây của `apply.rs::apply_translation` (cùng selector
+/// `[data-editable]`, cùng 5 thuộc tính `TRANSLATABLE_ATTRS` theo ĐÚNG thứ
+/// tự, cùng quy tắc "chỉ con TRỰC TIẾP mới là text node được dịch") trên CẢ
+/// 2 văn bản. Vì cấu trúc cây giống hệt nhau (xem trên), đơn vị thứ i thu
+/// được từ bản tagged và đơn vị thứ i từ bản dịch LUÔN ứng với CÙNG 1 vị trí
+/// trong cây — khớp cặp với nhau THEO CHỈ SỐ, không cần so khớp nội dung.
+///
+/// CÁCH TÌM VỊ TRÍ BYTE trong chuỗi đã serialize: scraper/html5ever không lộ
+/// offset của node trong chuỗi `.html()` trả về, nên với MỖI đơn vị, tìm
+/// chuỗi con (đã escape `&`/`<`/`"` giống quy tắc serialize của html5ever)
+/// bắt đầu tìm từ VỊ TRÍ TÌM THẤY LẦN TRƯỚC (không phải từ đầu chuỗi mỗi
+/// lần) — vì các đơn vị luôn xuất hiện trong chuỗi ĐÚNG THEO THỨ TỰ duyệt
+/// cây, tìm tiến dần tuần tự là đủ chính xác, không cần viết lại serializer.
+/// Nếu 1 đơn vị hiếm khi KHÔNG tìm thấy (vd quy tắc escape lệch ở 1 ca đặc
+/// biệt chưa lường hết) thì BỎ QUA tô màu riêng đơn vị đó (giữ màu mặc định)
+/// thay vì làm hỏng cả panel — không panic, không lệch dây chuyền sang các
+/// đơn vị sau.
+pub fn build_translation_highlight_jobs(
+    tagged_html: &str,
+    translated_html: &str,
+) -> (egui::text::LayoutJob, egui::text::LayoutJob) {
+    let font = egui::FontId::monospace(13.0);
+    let default_color = egui::Color32::from_gray(220);
+    let attr_color = egui::Color32::from_gray(115);
+    let source_color = egui::Color32::from_rgb(140, 180, 215);
+    let translated_color = egui::Color32::from_rgb(150, 200, 160);
+    let warn_text = egui::Color32::from_rgb(230, 200, 140);
+    let warn_bg = egui::Color32::from_rgb(90, 70, 25);
+
+    let mut left_highlights = attribute_highlights(tagged_html, &font, attr_color);
+    let mut right_highlights = attribute_highlights(translated_html, &font, attr_color);
+
+    let tagged_units = extract_translation_units(tagged_html);
+    let translated_units = extract_translation_units(translated_html);
+
+    let mut left_cursor = 0usize;
+    let mut right_cursor = 0usize;
+    for (i, tagged_unit) in tagged_units.iter().enumerate() {
+        // Lệch số lượng đơn vị (không nên xảy ra vì apply.rs giữ nguyên cấu
+        // trúc cây) -> dừng an toàn, không panic, không đoán bừa phần còn lại.
+        let Some(translated_unit) = translated_units.get(i) else {
+            break;
+        };
+
+        if let Some(range) = find_sequential(tagged_html, &tagged_unit.text, &mut left_cursor) {
+            left_highlights.push(Highlight {
+                range,
+                format: text_format_bg(&font, source_color, egui::Color32::TRANSPARENT),
+            });
+        }
+
+        let is_translated = tagged_unit.text != translated_unit.text;
+        if let Some(range) = find_sequential(translated_html, &translated_unit.text, &mut right_cursor) {
+            let format = if is_translated {
+                text_format_bg(&font, translated_color, egui::Color32::TRANSPARENT)
+            } else {
+                text_format_bg(&font, warn_text, warn_bg)
+            };
+            right_highlights.push(Highlight { range, format });
+        }
+    }
+
+    let mut left = build_job_with_highlights(tagged_html, left_highlights, &font, default_color);
+    let mut right = build_job_with_highlights(translated_html, right_highlights, &font, default_color);
+    left.wrap.max_width = f32::INFINITY;
+    right.wrap.max_width = f32::INFINITY;
+    (left, right)
+}
+
+/// 1 đơn vị nội dung có thể dịch (text node trực tiếp hoặc giá trị 1 trong 5
+/// thuộc tính TRANSLATABLE_ATTRS) — chỉ giữ text, không cần biết thuộc thẻ
+/// nào vì việc khớp cặp tagged<->dịch dựa trên CHỈ SỐ trong danh sách (xem
+/// doc comment `build_translation_highlight_jobs`).
+struct TranslationUnit {
+    text: String,
+}
+
+/// Duyệt cây ĐÚNG THEO THỨ TỰ apply.rs::apply_translation: với mỗi thẻ đã
+/// tag, kiểm tra 5 thuộc tính (theo đúng thứ tự TRANSLATABLE_ATTRS) rồi tới
+/// các con text trực tiếp (theo thứ tự xuất hiện) — bỏ qua thuộc
+/// tính/text rỗng sau khi trim, khớp đúng quy tắc apply.rs.
+fn extract_translation_units(html: &str) -> Vec<TranslationUnit> {
+    let document = Html::parse_document(html);
+    let mut units = Vec::new();
+    for el in document.select(&TAGGED_SELECTOR) {
+        let elem = el.value();
+        for attr_name in TRANSLATABLE_ATTRS {
+            if let Some(value) = elem.attr(attr_name) {
+                if !value.trim().is_empty() {
+                    units.push(TranslationUnit { text: value.to_string() });
+                }
+            }
+        }
+        for child in el.children() {
+            if let Node::Text(text) = child.value() {
+                if !text.text.trim().is_empty() {
+                    units.push(TranslationUnit {
+                        text: text.text.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    units
+}
+
+/// 1 khoảng byte trong chuỗi HTML đã serialize cần tô theo `format` riêng.
+struct Highlight {
+    range: Range<usize>,
+    format: egui::text::TextFormat,
+}
+
+/// Tìm mọi occurrence của `attr_name="..."` (gồm cả tên thuộc tính lẫn giá
+/// trị, tới hết dấu ngoặc kép đóng) để tô xám — dùng cho data-builder-id/
+/// data-editable/data-editable-attrs, không cần biết trước GIÁ TRỊ cụ thể vì
+/// đây là tìm theo TÊN thuộc tính (cú pháp cố định `name="..."`), khác với
+/// `find_sequential` (tìm theo NỘI DUNG cụ thể của 1 đơn vị dịch).
+fn attribute_highlights(html: &str, font: &egui::FontId, color: egui::Color32) -> Vec<Highlight> {
+    let mut highlights = Vec::new();
+    for attr_name in ["data-builder-id", "data-editable-attrs", "data-editable"] {
+        for range in find_attr_spans(html, attr_name) {
+            highlights.push(Highlight {
+                range,
+                format: text_format(font, color),
+            });
+        }
+    }
+    highlights
+}
+
+fn find_attr_spans(html: &str, attr_name: &str) -> Vec<Range<usize>> {
+    let prefix = format!("{attr_name}=\"");
+    let mut spans = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(rel_start) = html.get(search_from..).and_then(|s| s.find(prefix.as_str())) {
+        let start = search_from + rel_start;
+        let value_start = start + prefix.len();
+        let Some(rel_end) = html.get(value_start..).and_then(|s| s.find('"')) else {
+            break; // Không tìm thấy dấu đóng -> dừng, tránh vòng lặp vô hạn.
+        };
+        let end = value_start + rel_end + 1; // +1 để bao luôn dấu " đóng.
+        spans.push(start..end);
+        search_from = end;
+    }
+    spans
+}
+
+/// Escape TỐI THIỂU khớp quy tắc serialize text-node/attribute-value của
+/// html5ever: `&` và `<` luôn được escape trong text node; `"` cần thiết
+/// trong attribute value. Escape cả 3 ký tự ở đây vô hại ngay cả khi 1 ngữ
+/// cảnh nào đó html5ever không escape — chuỗi cần tìm khi đó chỉ đơn giản
+/// KHÔNG khớp, tự rơi vào nhánh "bỏ qua tô màu" ở `find_sequential`.
+fn html_escape_for_search(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")
+}
+
+/// Tìm `needle` (đã escape) trong `haystack`, CHỈ tìm từ `*cursor` trở đi rồi
+/// cập nhật `*cursor` tới cuối chỗ vừa tìm thấy — đảm bảo các lần gọi liên
+/// tiếp (theo đúng thứ tự duyệt cây) luôn tiến TỚI, không bao giờ tìm lùi
+/// lại chỗ đã qua hay tìm trúng 1 occurrence trùng lặp ở nơi khác của cùng
+/// nội dung. Trả None (bỏ qua, không panic) nếu không tìm thấy.
+fn find_sequential(haystack: &str, needle: &str, cursor: &mut usize) -> Option<Range<usize>> {
+    if needle.trim().is_empty() {
+        return None;
+    }
+    let escaped = html_escape_for_search(needle);
+    let rel = haystack.get(*cursor..)?.find(escaped.as_str())?;
+    let start = *cursor + rel;
+    let end = start + escaped.len();
+    *cursor = end;
+    Some(start..end)
+}
+
+/// Ghi `text` vào 1 LayoutJob, áp `highlights` lên đúng những khoảng byte
+/// tương ứng (sắp lại theo vị trí trước khi ghi), phần còn lại giữ
+/// `default_color`. Bỏ qua (không panic) bất kỳ highlight nào chồng lấn lên
+/// phần đã ghi hoặc vượt quá độ dài `text` — về lý thuyết không xảy ra
+/// (thuộc tính nằm trong thẻ mở, text node nằm sau thẻ mở, không thể chồng
+/// nhau) nhưng an toàn vẫn hơn.
+fn build_job_with_highlights(
+    text: &str,
+    mut highlights: Vec<Highlight>,
+    font: &egui::FontId,
+    default_color: egui::Color32,
+) -> egui::text::LayoutJob {
+    highlights.sort_by_key(|h| h.range.start);
+
+    let mut job = egui::text::LayoutJob::default();
+    let mut cursor = 0usize;
+    for h in highlights {
+        if h.range.start < cursor || h.range.end > text.len() || h.range.start > h.range.end {
+            continue;
+        }
+        if h.range.start > cursor {
+            job.append(&text[cursor..h.range.start], 0.0, text_format(font, default_color));
+        }
+        job.append(&text[h.range.start..h.range.end], 0.0, h.format);
+        cursor = h.range.end;
+    }
+    if cursor < text.len() {
+        job.append(&text[cursor..], 0.0, text_format(font, default_color));
+    }
+    job
+}
+
+fn text_format_bg(font: &egui::FontId, color: egui::Color32, background: egui::Color32) -> egui::text::TextFormat {
+    egui::text::TextFormat {
+        font_id: font.clone(),
+        color,
+        background,
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +500,76 @@ mod tests {
         let (left, right) = build_diff_jobs("a\n", "a\n");
         assert_eq!(left.wrap.max_width, f32::INFINITY);
         assert_eq!(right.wrap.max_width, f32::INFINITY);
+    }
+
+    // ---- build_translation_highlight_jobs và các hàm phụ trợ ----
+
+    #[test]
+    fn extracts_direct_text_child_and_translatable_attrs_in_order() {
+        let html = r#"<html><body>
+            <input data-builder-id="a_1" data-editable="placeholder" placeholder="Nhap ten">
+            <p data-builder-id="a_2" data-editable="text">Xin <b>chao</b> ban</p>
+        </body></html>"#;
+        let units = extract_translation_units(html);
+        // Thứ tự PHẢI đúng thứ tự duyệt cây của apply.rs: thuộc tính của thẻ
+        // input trước (vì input đứng trước trong tài liệu), rồi 2 mẩu text
+        // TRỰC TIẾP của <p> ("Xin ", " ban") — "chao" nằm trong <b> (chưa tự
+        // có data-editable riêng) nên KHÔNG được tính là 1 đơn vị ở đây.
+        let texts: Vec<&str> = units.iter().map(|u| u.text.as_str()).collect();
+        assert_eq!(texts, vec!["Nhap ten", "Xin ", " ban"]);
+    }
+
+    #[test]
+    fn find_attr_spans_locates_name_and_value_including_quotes() {
+        let html = r#"<p data-builder-id="hero_1" data-editable="text">hi</p>"#;
+        let spans = find_attr_spans(html, "data-builder-id");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&html[spans[0].clone()], r#"data-builder-id="hero_1""#);
+    }
+
+    #[test]
+    fn find_sequential_advances_cursor_so_duplicate_text_is_not_matched_twice() {
+        let haystack = "one two one three";
+        let mut cursor = 0usize;
+        let first = find_sequential(haystack, "one", &mut cursor).unwrap();
+        assert_eq!(&haystack[first], "one");
+        assert_eq!(first.start, 0);
+        // Lần tìm THỨ 2 phải nhảy tới occurrence "one" SAU, không tìm lại
+        // đúng chỗ cũ, nhờ cursor đã được cập nhật tiến lên.
+        let second = find_sequential(haystack, "one", &mut cursor).unwrap();
+        assert_eq!(&haystack[second.clone()], "one");
+        assert!(second.start > first.start);
+    }
+
+    #[test]
+    fn highlight_jobs_reconstruct_the_exact_original_text_on_both_sides() {
+        let tagged = r#"<p data-builder-id="x_1" data-editable="text">Hello world</p>"#;
+        let translated = r#"<p data-builder-id="x_1" data-editable="text">Xin chao</p>"#;
+        let (left, right) = build_translation_highlight_jobs(tagged, translated);
+        // Bất biến quan trọng nhất: dù chia thành bao nhiêu section màu khác
+        // nhau, ghép lại vẫn phải ĐÚNG TUYỆT ĐỐI chuỗi HTML gốc — không mất,
+        // không lặp, không xáo trộn ký tự nào.
+        assert_eq!(left.text, tagged);
+        assert_eq!(right.text, translated);
+    }
+
+    #[test]
+    fn highlight_jobs_reconstruct_exactly_even_when_untranslated() {
+        // Ca "chưa dịch": nội dung y hệt nhau ở cả 2 bên (đường tô nền cảnh
+        // báo màu vàng/cam) — vẫn phải ghép lại đúng nguyên văn.
+        let html = r#"<p data-builder-id="x_1" data-editable="text">Same text</p>"#;
+        let (left, right) = build_translation_highlight_jobs(html, html);
+        assert_eq!(left.text, html);
+        assert_eq!(right.text, html);
+    }
+
+    #[test]
+    fn highlight_jobs_do_not_panic_on_plain_non_html_fallback_text() {
+        // Ca thực tế: chưa có bản dịch sẵn sàng, preview.rs truyền vào 1
+        // chuỗi thông báo thuần tuý (không phải HTML) làm vế phải.
+        let tagged = r#"<p data-builder-id="x_1" data-editable="text">Hello</p>"#;
+        let (left, right) = build_translation_highlight_jobs(tagged, "(chưa có bản dịch)");
+        assert_eq!(left.text, tagged);
+        assert_eq!(right.text, "(chưa có bản dịch)");
     }
 }
