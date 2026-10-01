@@ -78,11 +78,21 @@ pub fn append_id_suffix(html: &str, suffix: &str) -> String {
         .expect("selector tĩnh hợp lệ");
     let document = Html::parse_document(html);
 
+    // SỬA LỖI: `current` ở đây có thể ĐÃ MANG SẴN hậu tố ngôn ngữ từ TRƯỚC —
+    // không chỉ khi id được kế thừa từ 1 file Old chưa bóc (detect.rs đã xử
+    // lý nhánh đó), mà CẢ KHI New là 1 file ĐÃ TAG/ĐÃ EXPORT được thả thẳng
+    // vào (không qua Old): `tag_html` dùng `add_attrs_if_missing`, nên nếu
+    // phần tử ĐÃ CÓ data-builder-id, giá trị CŨ đó được GIỮ NGUYÊN (không bị
+    // ghi đè) dù `matching::assign_ids` có tính ra 1 id khác. Nếu không bóc
+    // ở ĐÚNG ĐIỂM nối hậu tố này (bất kể id "cũ" đó đến từ đâu), kết quả sẽ
+    // là "..._en_en" (cộng dồn) hoặc "..._en_vi" (sai hẳn, lẫn ngôn ngữ) —
+    // xem giải thích đầy đủ ở `detect::strip_known_lang_suffix`.
     let targets: Vec<(ego_tree::NodeId, String)> = document
         .select(&selector)
         .filter_map(|el| {
             let current = el.value().attr("data-builder-id")?;
-            Some((el.id(), format!("{current}{suffix}")))
+            let base = detect::strip_known_lang_suffix(current);
+            Some((el.id(), format!("{base}{suffix}")))
         })
         .collect();
 
@@ -399,6 +409,37 @@ mod tests {
         assert!(output.contains(r#"data-builder-id="page_link_1_en""#));
         // Không còn id KHÔNG có hậu tố sót lại.
         assert!(!output.contains(r#"data-builder-id="page_text_1""#));
+    }
+
+    #[test]
+    fn append_id_suffix_does_not_double_when_id_already_has_a_suffix() {
+        // Ca thực tế: New là 1 file ĐÃ TAG/ĐÃ EXPORT thả thẳng vào (không
+        // qua Old) — tag_html giữ nguyên id cũ "..._en" sẵn có (xem
+        // add_attrs_if_missing), rồi append_id_suffix KHÔNG được cộng dồn
+        // thêm 1 lần "_en" nữa khi xuất lại cùng ngôn ngữ EN.
+        let html = r#"<html><body>
+            <p data-builder-id="page_text_1_en" data-editable="text">A</p>
+        </body></html>"#;
+
+        let output = append_id_suffix(html, "_en");
+
+        assert!(output.contains(r#"data-builder-id="page_text_1_en""#));
+        assert!(!output.contains(r#"data-builder-id="page_text_1_en_en""#));
+    }
+
+    #[test]
+    fn append_id_suffix_strips_mismatched_old_suffix_before_adding_new_one() {
+        // Ca New đã tag/export bằng ngôn ngữ KHÁC (vd "_en") nhưng giờ đang
+        // xuất sang ngôn ngữ khác (vd VI) — phải bóc "_en" cũ trước, không
+        // được ra "..._en_vi".
+        let html = r#"<html><body>
+            <p data-builder-id="page_text_1_en" data-editable="text">A</p>
+        </body></html>"#;
+
+        let output = append_id_suffix(html, "_vi");
+
+        assert!(output.contains(r#"data-builder-id="page_text_1_vi""#));
+        assert!(!output.contains("page_text_1_en"));
     }
 
     #[test]

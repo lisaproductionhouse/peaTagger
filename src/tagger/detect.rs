@@ -176,20 +176,24 @@ pub struct OldCandidate {
 /// tagger phụ thuộc NGƯỢC lên state (state đã phụ thuộc lên tagger) — đánh
 /// đổi: trùng lặp thủ công với id_suffix(), chấp nhận được vì đây là enum
 /// đóng 4 giá trị, thêm ngôn ngữ mới vốn dĩ đã phải sửa nhiều nơi ở state.rs.
-const KNOWN_LANG_ID_SUFFIXES: &[&str] = &["_en", "_vi", "_zh", "_ja"];
+pub(super) const KNOWN_LANG_ID_SUFFIXES: &[&str] = &["_en", "_vi", "_zh", "_ja"];
 
-/// Bóc hậu tố ngôn ngữ khỏi 1 data-builder-id đọc từ file Old — LẶP tới khi
-/// hết (không chỉ 1 lần) để tự phục hồi cả id đã lỡ bị cộng dồn TRƯỚC khi có
-/// fix này (vd "..._en_en").
+/// Bóc hậu tố ngôn ngữ khỏi 1 data-builder-id — LẶP tới khi hết (không chỉ 1
+/// lần) để tự phục hồi cả id đã lỡ bị cộng dồn TỪ TRƯỚC khi có fix này (vd
+/// "..._en_en" -> "...").
 ///
-/// Cần vì người dùng thả thẳng 1 file ĐÃ EXPORT (vd "index_en.html", id đã
-/// có sẵn "..._en") làm Old. Không bóc thì: (a) matching.rs giữ NGUYÊN id đó
-/// cho phần tử khớp, rồi export lại bị `append_id_suffix` cộng thêm hậu tố
-/// của NGÔN NGỮ ĐANG XUẤT — phình dần mỗi vòng Update ("..._en_en"), hoặc
-/// sai hẳn nếu xuất sang ngôn ngữ khác Old ("..._en_vi"); (b) TRAILING_NUMBER
-/// trong matching.rs (^(.*)_(\d+)$) không nhận ra số cuối vì id không còn
-/// kết thúc bằng số, seed_counter bỏ qua im lặng.
-fn strip_known_lang_suffix(id: &str) -> &str {
+/// `pub(super)`: dùng ở CẢ 2 nơi id có thể mang sẵn hậu tố "ngoài ý muốn":
+/// (1) `extract_old_candidates` ngay dưới đây — khi người dùng thả thẳng 1
+/// file ĐÃ EXPORT (vd "index_en.html", id đã có sẵn "..._en") làm Old; (2)
+/// `tagger::append_id_suffix` (mod.rs, module cha) — khi người dùng thả 1
+/// file ĐÃ TAG/ĐÃ EXPORT làm NEW (không qua cơ chế Old) — `tag_html` dùng
+/// `add_attrs_if_missing` nên GIỮ NGUYÊN id cũ đó, rồi append_id_suffix lại
+/// cộng thêm hậu tố NGÔN NGỮ ĐANG XUẤT lên trên, ra "..._en_en". Không bóc ở
+/// (1) hoặc (2) thì: (a) id phình dần mỗi vòng Update/export ("..._en_en"),
+/// hoặc sai hẳn nếu khác ngôn ngữ ("..._en_vi"); (b) TRAILING_NUMBER trong
+/// matching.rs (^(.*)_(\d+)$) không nhận ra số cuối vì id không còn kết thúc
+/// bằng số, seed_counter bỏ qua im lặng.
+pub(super) fn strip_known_lang_suffix(id: &str) -> &str {
     let mut base = id;
     while let Some(next) = KNOWN_LANG_ID_SUFFIXES.iter().find_map(|s| base.strip_suffix(s)) {
         base = next;
